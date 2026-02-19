@@ -4,381 +4,210 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TailwindAI 503b — FDA Compounding Enforcement Search</title>
-<meta name="description" content="AI-powered search across thousands of FDA 483s, Warning Letters, and enforcement documents for compounding pharmacies.">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-  @keyframes pulse2 { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-  .btn-green { background: #00A651; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
-  .btn-green:hover { background: #008C44; }
-  .btn-green:disabled { background: #E2E8F0; color: #94A3B8; cursor: default; }
-  .card { background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; padding: 24px; }
-  .card:hover { border-color: #CBD5E1; }
-  input:focus, select:focus { border-color: #00A651 !important; outline: none; }
-  a { color: #00A651; text-decoration: none; }
-  a:hover { color: #008C44; }
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}@keyframes pulse2{0%,100%{opacity:1}50%{opacity:.4}}
+.btn-green{background:#00A651;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;transition:background .15s}.btn-green:hover{background:#008C44}.btn-green:disabled{background:#E2E8F0;color:#94A3B8;cursor:default}
+.card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:24px}.card:hover{border-color:#CBD5E1}input:focus,select:focus{border-color:#00A651!important;outline:none}a{color:#00A651;text-decoration:none}a:hover{color:#008C44}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useCallback } = React;
+const{useState,useCallback}=React;
+const SB_URL="https://xwmnbuzoxdnlvzyjimvm.supabase.co";
+const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3bW5idXpveGRubHZ6eWppbXZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNTE2MzIsImV4cCI6MjA4NjkyNzYzMn0.RR9RI9ArjS4tD1SwUYfebU5gX4EOwx_kzpHskzyw19Y";
+const GK="AIzaSyAJl_ooV1_yDxiUgTKN9piqc5fOQwrl61s";
+const NV="#0F2B5B",GR="#00A651";
 
-const API_URL = "%%API_URL%%";
-const DEMO_MODE = true;
+async function doSearch(query,filters){
+  const er=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key="+GK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"models/gemini-embedding-001",content:{parts:[{text:query}]}})});
+  const ed=await er.json();const emb=ed.embedding.values;
+  const sb={query_embedding:emb,match_count:10,match_threshold:0.3};
+  if(filters.state)sb.filter_state=filters.state;
+  if(filters.facility_type)sb.filter_facility_type=filters.facility_type;
+  if(filters.doc_type)sb.filter_doc_type=filters.doc_type;
+  const sr=await fetch(SB_URL+"/rest/v1/rpc/search_documents",{method:"POST",headers:{apikey:SB_KEY,Authorization:"Bearer "+SB_KEY,"Content-Type":"application/json"},body:JSON.stringify(sb)});
+  const chunks=await sr.json();
+  if(!chunks||chunks.length===0)return{answer:"No matching documents found. Try a different query or broaden your filters.",sources:[]};
+  const ctx=chunks.slice(0,6).map((c,i)=>"Source "+(i+1)+" ("+((c.pharmacy_name)||"Unknown")+", "+(c.doc_type||"")+", "+(c.state||"")+", "+(c.date||"")+"):\n"+c.chunk_text).join("\n\n");
+  const ar=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key="+GK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:"You are an FDA regulatory expert. Based on these FDA enforcement document excerpts, answer the user's question. Cite specific documents by pharmacy name, type, and date. Be factual and concise.\n\nQuestion: "+query+"\n\nDocuments:\n"+ctx+"\n\nProvide a clear answer citing the sources."}]}]})});
+  const ad=await ar.json();const answer=ad.candidates[0].content.parts[0].text;
+  const seen=new Set();
+  const sources=chunks.filter(c=>{const k=(c.pharmacy_name||"")+"|"+(c.doc_type||"")+"|"+(c.date||"");if(seen.has(k))return false;seen.add(k);return true}).slice(0,6).map(c=>({pharmacy_name:c.pharmacy_name||"Unknown",doc_type:c.doc_type||"unknown",date:c.date||"",state:c.state||"",facility_type:c.facility_type||"unknown",url:c.source_url||"",relevance:c.similarity||0}));
+  return{answer,sources};
+}
 
-const MOCK_RESULTS = [
-  {
-    answer: "Yes, the FDA has cited insanitary conditions at AnazaoHealth Corporation on multiple occasions.\n\nThe Warning Letter dated 08/18/2021 (Case #613214) documented that drug products intended to be sterile were prepared under insanitary conditions, causing adulteration under section 501(a)(2)(A) of the FD&C Act. Inspectors found failure to maintain adequate environmental monitoring for the ISO 5 cleanroom, inadequate cleaning procedures, and improper gowning.\n\nSubsequent 483 observations from 07/29/2022 and 09/23/2024 continued to identify insanitary conditions at the Las Vegas facility.",
-    sources: [
-      { pharmacy_name: "AnazaoHealth Corporation", doc_type: "warning_letter", date: "08/18/2021", state: "NV", facility_type: "503B", url: "https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/warning-letters/anazaohealth-corporation-613214-08182021", relevance: 0.94 },
-      { pharmacy_name: "AnazaoHealth Corporation", doc_type: "483", date: "07/29/2022", state: "NV", facility_type: "503B", url: "https://www.fda.gov/media/163365/download", relevance: 0.91 },
-      { pharmacy_name: "AnazaoHealth Corporation", doc_type: "483", date: "09/23/2024", state: "NV", facility_type: "503B", url: "#", relevance: 0.87 },
-    ],
-  },
-  {
-    answer: "Empower Pharmacy in Houston, TX has received two Warning Letters from the FDA.\n\nThe first was issued 10/15/2021 citing violations at their 503B outsourcing facility including failures related to sterility assurance, environmental monitoring, and cGMP compliance.\n\nA second Warning Letter was issued 04/02/2025 after a follow-up inspection found continued violations. The 483 from 08/28/2024 documented extensive observations.",
-    sources: [
-      { pharmacy_name: "Empower Clinic Services, LLC", doc_type: "warning_letter", date: "04/02/2025", state: "TX", facility_type: "503B", url: "#", relevance: 0.96 },
-      { pharmacy_name: "Empower Clinic Services, LLC", doc_type: "483", date: "08/28/2024", state: "TX", facility_type: "503B", url: "https://www.fda.gov/media/182593/download", relevance: 0.93 },
-      { pharmacy_name: "Empower Clinic Services, LLC", doc_type: "warning_letter", date: "10/15/2021", state: "TX", facility_type: "503B", url: "#", relevance: 0.88 },
-    ],
-  },
-];
-const SAMPLE_QUERIES = ["Has FDA cited insanitary conditions at AnazaoHealth?","Which 503B facilities in Texas received warning letters in 2024?","Show me Empower Pharmacy enforcement history","What are common sterility violations for outsourcing facilities?","Environmental monitoring citations in California"];
+const SAMPLES=["Has FDA cited insanitary conditions at compounding pharmacies?","Which 503B facilities in Texas received warning letters?","Show me Empower Pharmacy enforcement history","Common sterility violations for outsourcing facilities","Environmental monitoring citations in California"];
+const SearchIcon=()=><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+const FileIcon=()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
+const Chev=({open})=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{transform:open?"rotate(180deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block",verticalAlign:"middle"}}><polyline points="6 9 12 15 18 9"/></svg>;
+const Check=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={GR} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
+const Logo=({big})=><div style={{display:"flex",alignItems:"center",fontWeight:800,fontSize:big?26:18,letterSpacing:"-0.02em"}}><span style={{color:NV}}>Tailwind</span><span style={{color:GR}}>AI</span><span style={{color:NV,fontSize:big?18:13,marginLeft:2}}>503b</span></div>;
 
-const NAVY = "#0F2B5B";
-const GREEN = "#00A651";
-
-const Search = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
-const FileIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
-const Chev = ({open}) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{transform:open?"rotate(180deg)":"rotate(0)",transition:"transform 0.2s",display:"inline-block",verticalAlign:"middle"}}><polyline points="6 9 12 15 18 9"/></svg>;
-const Ext = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>;
-const User = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
-const Check = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
-const Back = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>;
-
-const Logo = ({big}) => <div style={{display:"flex",alignItems:"center",fontWeight:800,fontSize:big?26:18,letterSpacing:"-0.02em"}}><span style={{color:NAVY}}>Tailwind</span><span style={{color:GREEN}}>AI</span><span style={{color:NAVY,fontSize:big?18:13,marginLeft:2}}>503b</span></div>;
-
-const Badge = ({children, variant="default"}) => {
-  const m = {"default":{bg:"#F1F5F9",c:"#475569",bc:"#E2E8F0"},"483":{bg:"#FFF7ED",c:"#9A3412",bc:"#FED7AA"},"warning_letter":{bg:"#FEF2F2",c:"#991B1B",bc:"#FECACA"},"untitled_letter":{bg:"#F5F3FF",c:"#5B21B6",bc:"#DDD6FE"},"fmd_145":{bg:"#EFF6FF",c:"#1E40AF",bc:"#BFDBFE"},"state_referral":{bg:"#FDF4FF",c:"#86198F",bc:"#F0ABFC"},"503A":{bg:"#ECFDF5",c:"#065F46",bc:"#A7F3D0"},"503B":{bg:"#EFF6FF",c:"#1E3A5F",bc:"#BFDBFE"},"active":{bg:"#ECFDF5",c:"#059669",bc:"#A7F3D0"}};
-  const s = m[variant]||m["default"];
+const Badge=({children,variant="default"})=>{
+  const m={"default":{bg:"#F1F5F9",c:"#475569",bc:"#E2E8F0"},"483":{bg:"#FFF7ED",c:"#9A3412",bc:"#FED7AA"},"warning_letter":{bg:"#FEF2F2",c:"#991B1B",bc:"#FECACA"},"untitled_letter":{bg:"#F5F3FF",c:"#5B21B6",bc:"#DDD6FE"},"fmd_145":{bg:"#EFF6FF",c:"#1E40AF",bc:"#BFDBFE"},"state_referral":{bg:"#FDF4FF",c:"#86198F",bc:"#F0ABFC"},"503A":{bg:"#ECFDF5",c:"#065F46",bc:"#A7F3D0"},"503B":{bg:"#EFF6FF",c:"#1E3A5F",bc:"#BFDBFE"}};
+  const s=m[variant]||m["default"];
   return <span style={{display:"inline-flex",alignItems:"center",padding:"2px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:s.bg,color:s.c,border:"1px solid "+s.bc}}>{children}</span>;
 };
-const docLabel = t => ({"483":"Form 483","warning_letter":"Warning Letter","untitled_letter":"Untitled Letter","fmd_145":"FMD-145","state_referral":"State Referral"})[t]||t;
+const docLabel=t=>({"483":"Form 483","warning_letter":"Warning Letter","untitled_letter":"Untitled Letter","fmd_145":"FMD-145","state_referral":"State Referral","recall":"Recall"})[t]||t;
 
-const Spinner = () => <div style={{display:"flex",alignItems:"center",gap:12,color:"#64748B"}}><div style={{position:"relative",width:20,height:20}}><div style={{position:"absolute",inset:0,border:"2px solid #E2E8F0",borderRadius:"50%"}}/><div style={{position:"absolute",inset:0,border:"2px solid #00A651",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 1s linear infinite"}}/></div><span style={{fontSize:14}}>Searching FDA enforcement documents...</span></div>;
-
-function SourceCard({source}) {
-  return (
-    <div className="card" style={{padding:16,borderRadius:10}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:10}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,overflow:"hidden"}}>
-          <span style={{color:"#94A3B8",flexShrink:0}}><FileIcon/></span>
-          <span style={{fontWeight:600,fontSize:14,color:NAVY,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{source.pharmacy_name}</span>
-        </div>
-        <span style={{fontSize:11,color:"#64748B",background:"#F8FAFC",padding:"2px 8px",borderRadius:4,fontFamily:"monospace",flexShrink:0}}>{Math.round(source.relevance*100)}%</span>
+function SourceCard({source}){
+  return(<div className="card" style={{padding:16,borderRadius:10}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,overflow:"hidden"}}>
+        <span style={{color:"#94A3B8",flexShrink:0}}><FileIcon/></span>
+        <span style={{fontWeight:600,fontSize:14,color:NV,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{source.pharmacy_name}</span>
       </div>
-      <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:6,marginBottom:10}}>
-        <Badge variant={source.doc_type}>{docLabel(source.doc_type)}</Badge>
-        <Badge variant={source.facility_type}>{source.facility_type}</Badge>
-        <span style={{fontSize:12,color:"#94A3B8",marginLeft:4}}>{source.state} &middot; {source.date}</span>
-      </div>
-      {source.url && source.url!=="#" && <a href={source.url} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500}}>View source document <Ext/></a>}
+      <span style={{fontSize:11,color:"#64748B",background:"#F8FAFC",padding:"2px 8px",borderRadius:4,fontFamily:"monospace",flexShrink:0}}>{Math.round(source.relevance*100)}%</span>
     </div>
-  );
+    <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:6}}>
+      <Badge variant={source.doc_type}>{docLabel(source.doc_type)}</Badge>
+      {source.facility_type&&source.facility_type!=="unknown"&&<Badge variant={source.facility_type}>{source.facility_type}</Badge>}
+      <span style={{fontSize:12,color:"#94A3B8",marginLeft:4}}>{source.state} &middot; {source.date}</span>
+    </div>
+  </div>);
 }
 
-function LandingPage({onNav}) {
-  return (
-    <div style={{minHeight:"100vh",background:"#fff",color:"#1E293B"}}>
-      <nav style={{borderBottom:"1px solid #F1F5F9",padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",maxWidth:1120,margin:"0 auto"}}>
-        <Logo/>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <button onClick={()=>onNav("login")} style={{fontSize:14,color:"#475569",background:"none",border:"none",cursor:"pointer",padding:"8px 12px"}}>Log in</button>
-          <button onClick={()=>onNav("signup")} className="btn-green" style={{fontSize:14,padding:"8px 20px"}}>Get started</button>
+function Landing({onNav}){
+  return(<div style={{minHeight:"100vh",background:"#fff",color:"#1E293B"}}>
+    <nav style={{borderBottom:"1px solid #F1F5F9",padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",maxWidth:1120,margin:"0 auto"}}><Logo/><button onClick={()=>onNav("search")} className="btn-green" style={{fontSize:14,padding:"8px 20px"}}>Try it now</button></nav>
+    <div style={{maxWidth:880,margin:"0 auto",padding:"80px 24px 60px",textAlign:"center"}}>
+      <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:999,padding:"6px 16px",fontSize:13,color:"#166534",marginBottom:32,fontWeight:500}}>
+        <span style={{width:6,height:6,borderRadius:"50%",background:"#22C55E",animation:"pulse2 2s ease-in-out infinite"}}/>631 documents indexed &middot; 274 pharmacies &middot; Updated daily
+      </div>
+      <h1 style={{fontSize:52,fontWeight:800,lineHeight:1.1,marginBottom:20,color:NV,letterSpacing:"-0.02em",animation:"fadeUp 0.6s ease-out"}}>
+        Search every FDA compounding<br/><span style={{color:GR}}>enforcement action</span>
+      </h1>
+      <p style={{fontSize:18,color:"#64748B",maxWidth:640,margin:"0 auto 48px",lineHeight:1.7}}>AI-powered search across hundreds of 483s, Warning Letters, and enforcement documents. Ask questions in plain English and get cited answers.</p>
+      <div style={{maxWidth:640,margin:"0 auto 80px"}}>
+        <div style={{background:"#fff",border:"2px solid #E2E8F0",borderRadius:16,padding:6,display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 24px rgba(15,43,91,0.06)"}}>
+          <div style={{paddingLeft:16,color:"#94A3B8"}}><SearchIcon/></div>
+          <div style={{flex:1,padding:"12px 8px",textAlign:"left",color:"#94A3B8",fontSize:14,fontStyle:"italic"}}>"Has FDA ever cited insanitary conditions at..."</div>
+          <button onClick={()=>onNav("search")} className="btn-green" style={{padding:"12px 24px",borderRadius:12,fontSize:14}}>Try it now</button>
         </div>
-      </nav>
-      <div style={{maxWidth:880,margin:"0 auto",padding:"80px 24px 60px",textAlign:"center"}}>
-        <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:999,padding:"6px 16px",fontSize:13,color:"#166534",marginBottom:32,fontWeight:500}}>
-          <span style={{width:6,height:6,borderRadius:"50%",background:"#22C55E",animation:"pulse2 2s ease-in-out infinite"}}/>
-          470+ pharmacies &middot; 2,000+ documents &middot; Updated daily
-        </div>
-        <h1 style={{fontSize:52,fontWeight:800,lineHeight:1.1,marginBottom:20,color:NAVY,letterSpacing:"-0.02em",animation:"fadeUp 0.6s ease-out"}}>
-          Search every FDA compounding<br/><span style={{color:GREEN}}>enforcement action</span>
-        </h1>
-        <p style={{fontSize:18,color:"#64748B",maxWidth:640,margin:"0 auto 48px",lineHeight:1.7}}>
-          AI-powered search across thousands of 483s, Warning Letters, and enforcement documents. Ask questions in plain English and get cited answers with source links.
-        </p>
-        <div style={{maxWidth:640,margin:"0 auto 80px"}}>
-          <div style={{background:"#fff",border:"2px solid #E2E8F0",borderRadius:16,padding:6,display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 24px rgba(15,43,91,0.06)"}}>
-            <div style={{paddingLeft:16,color:"#94A3B8"}}><Search/></div>
-            <div style={{flex:1,padding:"12px 8px",textAlign:"left",color:"#94A3B8",fontSize:14,fontStyle:"italic"}}>"Has FDA ever cited insanitary conditions to..."</div>
-            <button onClick={()=>onNav("signup")} className="btn-green" style={{padding:"12px 24px",borderRadius:12,fontSize:14}}>Try it free</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:20,maxWidth:960,margin:"0 auto 96px",textAlign:"left"}}>
+        {[{t:"Natural Language Search",d:"Ask questions like you would to a regulatory expert. AI finds and cites the exact documents.",i:"\uD83D\uDD0D"},{t:"Full-Text OCR Index",d:"Every 483 and Warning Letter PDF is OCR'd and indexed. Search inside documents, not just titles.",i:"\uD83D\uDCC4"},{t:"Daily Updates",d:"Automated monitoring of the FDA compounding actions page. New documents indexed within hours.",i:"\u26A1"}].map((f,i)=>(
+          <div key={i} style={{background:"#F8FAFC",border:"1px solid #F1F5F9",borderRadius:12,padding:28}}>
+            <div style={{fontSize:28,marginBottom:16}}>{f.i}</div>
+            <h3 style={{fontWeight:700,marginBottom:8,fontSize:15,color:NV}}>{f.t}</h3>
+            <p style={{fontSize:14,color:"#64748B",lineHeight:1.6}}>{f.d}</p>
+          </div>
+        ))}
+      </div>
+      <div style={{marginBottom:80}}>
+        <h2 style={{fontSize:36,fontWeight:800,color:NV,marginBottom:8}}>One plan. Unlimited access.</h2>
+        <p style={{color:"#64748B",marginBottom:40,fontSize:17}}>No usage caps. No per-search fees. Cancel anytime.</p>
+        <div style={{maxWidth:420,margin:"0 auto"}}>
+          <div style={{position:"relative",background:"#fff",border:"2px solid "+GR,borderRadius:16,padding:36,textAlign:"left",boxShadow:"0 4px 24px rgba(0,166,81,0.08)"}}>
+            <div style={{position:"absolute",top:-13,left:28,background:GR,color:"#fff",fontSize:12,fontWeight:700,padding:"4px 16px",borderRadius:999}}>7-day free trial</div>
+            <div style={{fontSize:13,color:GR,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>Unlimited Plan</div>
+            <div style={{display:"flex",alignItems:"baseline",gap:2,marginBottom:2}}><span style={{fontSize:48,fontWeight:800,color:NV}}>$99</span><span style={{fontSize:16,color:"#94A3B8"}}>/month</span></div>
+            <div style={{fontSize:13,color:"#94A3B8",marginBottom:28}}>after free trial</div>
+            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:28}}>
+              {["Unlimited searches","Full-text search across all 483s & Warning Letters","AI-powered answers with source citations","Filter by state, facility type, document type","Direct PDF download links","Daily index updates from FDA.gov"].map((f,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,fontSize:14,color:"#334155"}}><Check/>{f}</div>
+              ))}
+            </div>
+            <button onClick={()=>onNav("search")} className="btn-green" style={{width:"100%",padding:"14px 0",borderRadius:10,fontSize:15}}>Start free trial</button>
+            <p style={{fontSize:12,color:"#94A3B8",textAlign:"center",marginTop:12}}>No credit card required to start</p>
           </div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:20,maxWidth:960,margin:"0 auto 96px",textAlign:"left"}}>
-          {[{t:"Natural Language Search",d:"Ask questions like you would to a regulatory expert. AI finds and cites the exact documents.",i:"\uD83D\uDD0D"},{t:"Full-Text OCR Index",d:"Every 483 and Warning Letter PDF is OCR'd and indexed. Search inside documents, not just titles.",i:"\uD83D\uDCC4"},{t:"Daily Updates",d:"Automated monitoring of the FDA compounding actions page. New documents indexed within hours.",i:"\u26A1"}].map((f,i)=>(
-            <div key={i} style={{background:"#F8FAFC",border:"1px solid #F1F5F9",borderRadius:12,padding:28}}>
-              <div style={{fontSize:28,marginBottom:16}}>{f.i}</div>
-              <h3 style={{fontWeight:700,marginBottom:8,fontSize:15,color:NAVY}}>{f.t}</h3>
-              <p style={{fontSize:14,color:"#64748B",lineHeight:1.6}}>{f.d}</p>
-            </div>
-          ))}
-        </div>
-        <div style={{marginBottom:80}}>
-          <h2 style={{fontSize:36,fontWeight:800,color:NAVY,marginBottom:8}}>One plan. Unlimited access.</h2>
-          <p style={{color:"#64748B",marginBottom:40,fontSize:17}}>No usage caps. No per-search fees. Cancel anytime.</p>
-          <div style={{maxWidth:420,margin:"0 auto"}}>
-            <div style={{position:"relative",background:"#fff",border:"2px solid "+GREEN,borderRadius:16,padding:36,textAlign:"left",boxShadow:"0 4px 24px rgba(0,166,81,0.08)"}}>
-              <div style={{position:"absolute",top:-13,left:28,background:GREEN,color:"#fff",fontSize:12,fontWeight:700,padding:"4px 16px",borderRadius:999}}>7-day free trial</div>
-              <div style={{fontSize:13,color:GREEN,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>Unlimited Plan</div>
-              <div style={{display:"flex",alignItems:"baseline",gap:2,marginBottom:2}}><span style={{fontSize:48,fontWeight:800,color:NAVY}}>$99</span><span style={{fontSize:16,color:"#94A3B8"}}>/month</span></div>
-              <div style={{fontSize:13,color:"#94A3B8",marginBottom:28}}>after free trial</div>
-              <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:28}}>
-                {["Unlimited searches","Full-text search across all 483s & Warning Letters","AI-powered answers with source citations","Filter by state, facility type, document type","Direct PDF download links","Daily index updates from FDA.gov"].map((f,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,fontSize:14,color:"#334155"}}><Check/>{f}</div>
-                ))}
-              </div>
-              <button onClick={()=>onNav("signup")} className="btn-green" style={{width:"100%",padding:"14px 0",borderRadius:10,fontSize:15}}>Start free trial</button>
-              <p style={{fontSize:12,color:"#94A3B8",textAlign:"center",marginTop:12}}>No credit card required to start</p>
-            </div>
-          </div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:16,maxWidth:720,margin:"0 auto 40px"}}>
-          {[{v:"2,000+",l:"Documents Indexed"},{v:"470+",l:"Pharmacies"},{v:"50",l:"States Covered"},{v:"Daily",l:"Update Frequency"}].map((s,i)=>(
-            <div key={i} style={{background:"#F8FAFC",border:"1px solid #F1F5F9",borderRadius:10,padding:20,textAlign:"center"}}>
-              <div style={{fontSize:24,fontWeight:800,color:NAVY,marginBottom:2}}>{s.v}</div>
-              <div style={{fontSize:12,color:"#94A3B8"}}>{s.l}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <footer style={{borderTop:"1px solid #F1F5F9",padding:"28px 24px",textAlign:"center",fontSize:12,color:"#94A3B8",maxWidth:1120,margin:"0 auto"}}>
-        <p>TailwindAI 503b is not affiliated with or endorsed by the U.S. Food and Drug Administration.</p>
-        <p style={{marginTop:4}}>&copy; 2026 Tailwind Pharma LLC. All rights reserved.</p>
-      </footer>
-    </div>
-  );
-}
-
-function AuthPage({mode, onLogin, onNav}) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const isLogin = mode === "login";
-  const submit = async () => {
-    if (!email.trim()||!password.trim()) { setError("Please fill in all fields"); return; }
-    setLoading(true); setError("");
-    await new Promise(r=>setTimeout(r,800));
-    onLogin({email,plan:"unlimited",status:"active",trial_end:"2026-02-19"});
-  };
-  const inp = {width:"100%",boxSizing:"border-box",background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 14px",fontSize:14,color:"#1E293B",outline:"none"};
-  return (
-    <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{width:"100%",maxWidth:380}}>
-        <div style={{textAlign:"center",marginBottom:32}}><div style={{marginBottom:20}}><Logo big/></div>
-          <h1 style={{fontSize:22,fontWeight:700,color:NAVY,marginBottom:4}}>{isLogin?"Welcome back":"Create your account"}</h1>
-          <p style={{fontSize:14,color:"#64748B"}}>{isLogin?"Sign in to continue searching":"Start your 7-day free trial"}</p>
-        </div>
-        <div className="card" style={{display:"flex",flexDirection:"column",gap:16}}>
-          {error&&<div style={{fontSize:13,color:"#DC2626",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,padding:"8px 12px"}}>{error}</div>}
-          <div><label style={{display:"block",fontSize:13,color:"#64748B",marginBottom:6,fontWeight:500}}>Email</label>
-            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} style={inp} placeholder="you@company.com"/></div>
-          <div><label style={{display:"block",fontSize:13,color:"#64748B",marginBottom:6,fontWeight:500}}>Password</label>
-            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} style={inp} placeholder="••••••••"/></div>
-          <button onClick={submit} disabled={loading} className="btn-green" style={{width:"100%",padding:"12px 0",fontSize:14}}>
-            {loading?"Loading...":isLogin?"Sign in":"Create account & start trial"}
-          </button>
-        </div>
-        <div style={{textAlign:"center",marginTop:24,fontSize:14,color:"#64748B"}}>
-          {isLogin?"Don't have an account?":"Already have an account?"}{" "}
-          <button onClick={()=>onNav(isLogin?"signup":"login")} style={{color:GREEN,background:"none",border:"none",cursor:"pointer",fontWeight:600,fontSize:14}}>{isLogin?"Sign up":"Sign in"}</button>
-        </div>
-        <div style={{textAlign:"center",marginTop:12}}>
-          <button onClick={()=>onNav("landing")} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"#94A3B8",background:"none",border:"none",cursor:"pointer"}}><Back/> Back to home</button>
-        </div>
       </div>
     </div>
-  );
+    <footer style={{borderTop:"1px solid #F1F5F9",padding:"28px 24px",textAlign:"center",fontSize:12,color:"#94A3B8",maxWidth:1120,margin:"0 auto"}}>
+      <p>TailwindAI 503b is not affiliated with or endorsed by the U.S. Food and Drug Administration.</p>
+      <p style={{marginTop:4}}>&copy; 2026 Tailwind Pharma LLC. All rights reserved.</p>
+    </footer>
+  </div>);
 }
 
-function Dashboard({user, onNav, onLogout}) {
-  const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [result, setResult] = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({state:"",facility_type:"",doc_type:""});
-  const [history, setHistory] = useState([]);
-  const [showSrc, setShowSrc] = useState(true);
-  const [showMenu, setShowMenu] = useState(false);
-
-  const search = useCallback(async(sq)=>{
-    const q=sq||query; if(!q.trim())return;
-    setQuery(q); setSearching(true); setResult(null);
-    await new Promise(r=>setTimeout(r,1800+Math.random()*1000));
-    setResult({...MOCK_RESULTS[Math.floor(Math.random()*MOCK_RESULTS.length)],query:q});
-    setHistory(p=>[{query:q,ts:new Date().toISOString()},...p.filter(h=>h.query!==q).slice(0,19)]);
+function SearchPage({onNav}){
+  const[query,setQuery]=useState("");const[searching,setSearching]=useState(false);const[result,setResult]=useState(null);const[error,setError]=useState("");
+  const[showFilters,setShowFilters]=useState(false);const[filters,setFilters]=useState({state:"",facility_type:"",doc_type:""});
+  const[history,setHistory]=useState([]);const[showSrc,setShowSrc]=useState(true);
+  const search=useCallback(async(sq)=>{
+    const q=sq||query;if(!q.trim())return;setQuery(q);setSearching(true);setResult(null);setError("");
+    try{const res=await doSearch(q,filters);setResult({...res,query:q});setHistory(p=>[{query:q},...p.filter(h=>h.query!==q).slice(0,19)]);}catch(e){setError("Search failed: "+e.message);}
     setSearching(false);
-  },[query]);
-
-  const sel = {background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,padding:"6px 10px",color:"#334155",outline:"none"};
-  return (
-    <div style={{minHeight:"100vh",background:"#FAFBFC"}}>
-      <nav style={{background:"#fff",borderBottom:"1px solid #F1F5F9",padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <Logo/>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <Badge variant="active">Unlimited</Badge>
-          <div style={{position:"relative"}}>
-            <button onClick={()=>setShowMenu(!showMenu)} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#64748B",background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,padding:"6px 14px",cursor:"pointer"}}><User/><span>{user.email}</span><Chev open={showMenu}/></button>
-            {showMenu&&<div style={{position:"absolute",right:0,top:"calc(100% + 6px)",width:200,background:"#fff",border:"1px solid #E2E8F0",borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,0.08)",padding:4,zIndex:50}}>
-              <button onClick={()=>{onNav("account");setShowMenu(false);}} style={{width:"100%",textAlign:"left",padding:"10px 14px",fontSize:14,color:"#334155",background:"none",border:"none",borderRadius:8,cursor:"pointer"}}>Account & Billing</button>
-              <div style={{height:1,background:"#F1F5F9",margin:"2px 0"}}/>
-              <button onClick={onLogout} style={{width:"100%",textAlign:"left",padding:"10px 14px",fontSize:14,color:"#94A3B8",background:"none",border:"none",borderRadius:8,cursor:"pointer"}}>Sign out</button>
-            </div>}
-          </div>
+  },[query,filters]);
+  const sel={background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,padding:"6px 10px",color:"#334155",outline:"none"};
+  return(<div style={{minHeight:"100vh",background:"#FAFBFC"}}>
+    <nav style={{background:"#fff",borderBottom:"1px solid #F1F5F9",padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{cursor:"pointer"}} onClick={()=>onNav("landing")}><Logo/></div>
+      <span style={{display:"inline-flex",alignItems:"center",padding:"2px 10px",borderRadius:6,fontSize:12,fontWeight:500,background:"#ECFDF5",color:"#059669",border:"1px solid #A7F3D0"}}>Live Search</span>
+    </nav>
+    <div style={{maxWidth:860,margin:"0 auto",padding:"32px 24px"}}>
+      <div style={{marginBottom:32}}>
+        <div style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:14,padding:6,display:"flex",alignItems:"center",gap:8,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+          <div style={{paddingLeft:14,color:"#94A3B8"}}><SearchIcon/></div>
+          <input type="text" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()}
+            placeholder="Ask about FDA compounding enforcement actions..." style={{flex:1,background:"none",border:"none",fontSize:14,padding:"10px 4px",outline:"none",color:"#1E293B"}}/>
+          <button onClick={()=>setShowFilters(!showFilters)}
+            style={{fontSize:12,padding:"8px 12px",borderRadius:8,cursor:"pointer",background:showFilters?"#EFF6FF":"transparent",color:showFilters?NV:"#94A3B8",border:showFilters?"1px solid #BFDBFE":"1px solid transparent",display:"flex",alignItems:"center",gap:4}}>
+            Filters <Chev open={showFilters}/>
+          </button>
+          <button onClick={()=>search()} disabled={searching||!query.trim()} className="btn-green" style={{padding:"10px 22px",borderRadius:10,fontSize:14}}>Search</button>
         </div>
-      </nav>
-      <div style={{maxWidth:860,margin:"0 auto",padding:"32px 24px"}}>
-        <div style={{marginBottom:32}}>
-          <div style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:14,padding:6,display:"flex",alignItems:"center",gap:8,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
-            <div style={{paddingLeft:14,color:"#94A3B8"}}><Search/></div>
-            <input type="text" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()}
-              placeholder="Ask about FDA compounding enforcement actions..."
-              style={{flex:1,background:"none",border:"none",fontSize:14,padding:"10px 4px",outline:"none",color:"#1E293B"}}/>
-            <button onClick={()=>setShowFilters(!showFilters)}
-              style={{fontSize:12,padding:"8px 12px",borderRadius:8,cursor:"pointer",background:showFilters?"#EFF6FF":"transparent",color:showFilters?NAVY:"#94A3B8",border:showFilters?"1px solid #BFDBFE":"1px solid transparent",display:"flex",alignItems:"center",gap:4}}>
-              Filters <Chev open={showFilters}/>
-            </button>
-            <button onClick={()=>search()} disabled={searching||!query.trim()} className="btn-green" style={{padding:"10px 22px",borderRadius:10,fontSize:14}}>Search</button>
-          </div>
-          {showFilters&&<div style={{marginTop:8,background:"#fff",border:"1px solid #F1F5F9",borderRadius:12,padding:16,display:"flex",flexWrap:"wrap",gap:16}}>
-            {[{k:"state",l:"State",o:["CA","TX","FL","NY","NV","PA","NC","MO","IN","VA","MD","NJ","OH","IL","TN","MA","AZ","KS","GA","WA"]},
-              {k:"facility_type",l:"Facility",o:[["503A","503A (Pharmacy)"],["503B","503B (Outsourcing)"]]},
-              {k:"doc_type",l:"Document",o:[["483","Form 483"],["warning_letter","Warning Letter"],["untitled_letter","Untitled Letter"],["fmd_145","FMD-145"],["state_referral","State Referral"]]}
-            ].map(f=><div key={f.k}><label style={{display:"block",fontSize:11,color:"#94A3B8",marginBottom:4,fontWeight:500,textTransform:"uppercase",letterSpacing:"0.05em"}}>{f.l}</label>
-              <select value={filters[f.k]} onChange={e=>setFilters({...filters,[f.k]:e.target.value})} style={sel}><option value="">All</option>
-                {f.o.map(o=>Array.isArray(o)?<option key={o[0]} value={o[0]}>{o[1]}</option>:<option key={o} value={o}>{o}</option>)}
-              </select></div>)}
-          </div>}
-        </div>
-        {!result&&!searching&&<div style={{marginBottom:40}}>
-          <div style={{fontSize:12,color:"#94A3B8",marginBottom:12,fontWeight:500}}>Try a sample query</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {SAMPLE_QUERIES.map((q,i)=><button key={i} onClick={()=>{setQuery(q);search(q);}}
-              style={{fontSize:13,background:"#fff",border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 14px",color:"#64748B",cursor:"pointer",textAlign:"left"}}>{q}</button>)}
-          </div>
-        </div>}
-        {searching&&<div style={{padding:"80px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
-          <Spinner/>
-          <div style={{display:"flex",gap:4}}>{[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:GREEN,opacity:0.5,animation:"pulse2 1.5s ease-in-out "+i*0.3+"s infinite"}}/>)}</div>
-        </div>}
-        {result&&!searching&&<div style={{display:"flex",flexDirection:"column",gap:20}}>
-          <div className="card">
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
-              <div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg, "+NAVY+", "+GREEN+")",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                <span style={{color:"#fff",fontSize:10,fontWeight:800}}>AI</span>
-              </div>
-              <span style={{fontSize:14,fontWeight:600,color:NAVY}}>Answer</span>
-            </div>
-            <div style={{fontSize:14,color:"#334155",lineHeight:1.75,whiteSpace:"pre-wrap"}}>{result.answer}</div>
-          </div>
-          {result.sources&&result.sources.length>0&&<div>
-            <button onClick={()=>setShowSrc(!showSrc)} style={{display:"flex",alignItems:"center",gap:8,fontSize:14,color:"#64748B",background:"none",border:"none",cursor:"pointer",marginBottom:12,fontWeight:500}}><Chev open={showSrc}/>{result.sources.length} source documents</button>
-            {showSrc&&<div style={{display:"grid",gridTemplateColumns:"repeat(2, 1fr)",gap:12}}>{result.sources.map((s,i)=><SourceCard key={i} source={s}/>)}</div>}
-          </div>}
-        </div>}
-        {history.length>0&&!searching&&<div style={{marginTop:48,borderTop:"1px solid #F1F5F9",paddingTop:24}}>
-          <div style={{fontSize:12,color:"#94A3B8",marginBottom:12,fontWeight:500}}>Recent searches</div>
-          {history.slice(0,8).map((h,i)=><button key={i} onClick={()=>{setQuery(h.query);search(h.query);}}
-            style={{display:"block",width:"100%",textAlign:"left",fontSize:13,color:"#64748B",padding:"8px 12px",borderRadius:8,background:"none",border:"none",cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.query}</button>)}
-        </div>}
-        {!result&&!searching&&<div style={{marginTop:64,display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:12}}>
-          {[{l:"Documents",v:"2,000+"},{l:"Pharmacies",v:"470+"},{l:"States",v:"50"},{l:"Updated",v:"Today"}].map((s,i)=>(
-            <div key={i} style={{background:"#fff",border:"1px solid #F1F5F9",borderRadius:10,padding:16,textAlign:"center"}}>
-              <div style={{fontSize:20,fontWeight:800,color:NAVY}}>{s.v}</div>
-              <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>{s.l}</div>
-            </div>
-          ))}
+        {showFilters&&<div style={{marginTop:8,background:"#fff",border:"1px solid #F1F5F9",borderRadius:12,padding:16,display:"flex",flexWrap:"wrap",gap:16}}>
+          {[{k:"state",l:"State",o:["CA","TX","FL","NY","NV","PA","NC","MO","IN","VA","MD","NJ","OH","IL","TN","MA","AZ","KS","GA","WA"]},
+            {k:"facility_type",l:"Facility",o:[["503A","503A"],["503B","503B"]]},
+            {k:"doc_type",l:"Document",o:[["483","Form 483"],["warning_letter","Warning Letter"],["untitled_letter","Untitled Letter"],["fmd_145","FMD-145"],["state_referral","State Referral"]]}
+          ].map(f=><div key={f.k}><label style={{display:"block",fontSize:11,color:"#94A3B8",marginBottom:4,fontWeight:500,textTransform:"uppercase",letterSpacing:"0.05em"}}>{f.l}</label>
+            <select value={filters[f.k]} onChange={e=>setFilters({...filters,[f.k]:e.target.value})} style={sel}><option value="">All</option>
+              {f.o.map(o=>Array.isArray(o)?<option key={o[0]} value={o[0]}>{o[1]}</option>:<option key={o} value={o}>{o}</option>)}
+            </select></div>)}
         </div>}
       </div>
-    </div>
-  );
-}
-
-function AccountPage({user, onNav}) {
-  const [tab, setTab] = useState("account");
-  const [cancelConfirm, setCancelConfirm] = useState(false);
-  return (
-    <div style={{minHeight:"100vh",background:"#FAFBFC"}}>
-      <nav style={{background:"#fff",borderBottom:"1px solid #F1F5F9",padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <Logo/>
-        <button onClick={()=>onNav("dashboard")} style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:14,color:"#64748B",background:"none",border:"none",cursor:"pointer"}}><Back/> Back to search</button>
-      </nav>
-      <div style={{maxWidth:640,margin:"0 auto",padding:"40px 24px"}}>
-        <h1 style={{fontSize:24,fontWeight:800,color:NAVY,marginBottom:32}}>Account & Billing</h1>
-        <div style={{display:"flex",gap:4,background:"#F1F5F9",borderRadius:10,padding:4,marginBottom:32}}>
-          {[["account","Account"],["billing","Billing"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"10px 0",borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer",border:"none",background:tab===k?"#fff":"transparent",color:tab===k?NAVY:"#94A3B8",boxShadow:tab===k?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>{l}</button>
-          ))}
+      {error&&<div style={{fontSize:14,color:"#DC2626",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,padding:"12px 16px",marginBottom:20}}>{error}</div>}
+      {!result&&!searching&&<div style={{marginBottom:40}}>
+        <div style={{fontSize:12,color:"#94A3B8",marginBottom:12,fontWeight:500}}>Try a sample query</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {SAMPLES.map((q,i)=><button key={i} onClick={()=>{setQuery(q);search(q);}}
+            style={{fontSize:13,background:"#fff",border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 14px",color:"#64748B",cursor:"pointer",textAlign:"left"}}>{q}</button>)}
         </div>
-        {tab==="account"&&<div style={{display:"flex",flexDirection:"column",gap:24}}>
-          <div className="card">
-            <h3 style={{fontWeight:700,marginBottom:20,color:NAVY,fontSize:16}}>Profile</h3>
-            <div style={{display:"flex",flexDirection:"column",gap:16}}>
-              <div><label style={{display:"block",fontSize:12,color:"#94A3B8",marginBottom:6,fontWeight:500}}>Email</label>
-                <div style={{fontSize:14,color:"#334155",background:"#F8FAFC",border:"1px solid #F1F5F9",borderRadius:8,padding:"10px 14px"}}>{user.email}</div></div>
-              <div><label style={{display:"block",fontSize:12,color:"#94A3B8",marginBottom:6,fontWeight:500}}>Plan</label>
-                <div style={{display:"flex",alignItems:"center",gap:8}}><Badge variant="active">Unlimited</Badge><span style={{fontSize:14,color:"#64748B"}}>$99/month</span></div></div>
-              {user.trial_end&&<div><label style={{display:"block",fontSize:12,color:"#94A3B8",marginBottom:6,fontWeight:500}}>Trial ends</label>
-                <div style={{fontSize:14,color:GREEN,fontWeight:600}}>{user.trial_end}</div></div>}
-            </div>
+      </div>}
+      {searching&&<div style={{padding:"80px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,color:"#64748B"}}>
+          <div style={{position:"relative",width:20,height:20}}><div style={{position:"absolute",inset:0,border:"2px solid #E2E8F0",borderRadius:"50%"}}/><div style={{position:"absolute",inset:0,border:"2px solid #00A651",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 1s linear infinite"}}/></div>
+          <span style={{fontSize:14}}>Searching FDA enforcement documents...</span>
+        </div>
+      </div>}
+      {result&&!searching&&<div style={{display:"flex",flexDirection:"column",gap:20}}>
+        <div className="card">
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+            <div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,"+NV+","+GR+")",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#fff",fontSize:10,fontWeight:800}}>AI</span></div>
+            <span style={{fontSize:14,fontWeight:600,color:NV}}>Answer</span>
           </div>
+          <div style={{fontSize:14,color:"#334155",lineHeight:1.75,whiteSpace:"pre-wrap"}}>{result.answer}</div>
+        </div>
+        {result.sources&&result.sources.length>0&&<div>
+          <button onClick={()=>setShowSrc(!showSrc)} style={{display:"flex",alignItems:"center",gap:8,fontSize:14,color:"#64748B",background:"none",border:"none",cursor:"pointer",marginBottom:12,fontWeight:500}}><Chev open={showSrc}/>{result.sources.length} source documents</button>
+          {showSrc&&<div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>{result.sources.map((s,i)=><SourceCard key={i} source={s}/>)}</div>}
         </div>}
-        {tab==="billing"&&<div style={{display:"flex",flexDirection:"column",gap:24}}>
-          <div className="card">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <h3 style={{fontWeight:700,color:NAVY,fontSize:16}}>Current Plan</h3>
-              <Badge variant="active">Active</Badge>
-            </div>
-            <div style={{display:"flex",alignItems:"baseline",gap:2,marginBottom:4}}><span style={{fontSize:32,fontWeight:800,color:NAVY}}>$99</span><span style={{color:"#94A3B8"}}>/month</span></div>
-            <p style={{fontSize:14,color:"#64748B",marginBottom:12}}>Unlimited Plan &middot; Billed monthly</p>
+      </div>}
+      {history.length>0&&!searching&&<div style={{marginTop:48,borderTop:"1px solid #F1F5F9",paddingTop:24}}>
+        <div style={{fontSize:12,color:"#94A3B8",marginBottom:12,fontWeight:500}}>Recent searches</div>
+        {history.slice(0,5).map((h,i)=><button key={i} onClick={()=>{setQuery(h.query);search(h.query);}}
+          style={{display:"block",width:"100%",textAlign:"left",fontSize:13,color:"#64748B",padding:"8px 12px",borderRadius:8,background:"none",border:"none",cursor:"pointer"}}>{h.query}</button>)}
+      </div>}
+      {!result&&!searching&&<div style={{marginTop:64,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+        {[{l:"Documents",v:"631"},{l:"Pharmacies",v:"274"},{l:"States",v:"50"},{l:"Updated",v:"Today"}].map((s,i)=>(
+          <div key={i} style={{background:"#fff",border:"1px solid #F1F5F9",borderRadius:10,padding:16,textAlign:"center"}}>
+            <div style={{fontSize:20,fontWeight:800,color:NV}}>{s.v}</div><div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>{s.l}</div>
           </div>
-          <div className="card">
-            <h3 style={{fontWeight:700,marginBottom:8,color:NAVY,fontSize:16}}>Cancel Subscription</h3>
-            <p style={{fontSize:14,color:"#94A3B8",marginBottom:16}}>You'll keep access until the end of your billing period.</p>
-            {!cancelConfirm?<button onClick={()=>setCancelConfirm(true)} style={{fontSize:14,color:"#DC2626",background:"none",border:"1px solid #FECACA",borderRadius:8,padding:"8px 16px",cursor:"pointer"}}>Cancel subscription</button>
-            :<div style={{display:"flex",gap:12}}>
-              <button onClick={()=>setCancelConfirm(false)} style={{fontSize:14,color:"#64748B",background:"none",border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 16px",cursor:"pointer"}}>Keep subscription</button>
-              <button style={{fontSize:14,color:"#DC2626",background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:8,padding:"8px 16px",cursor:"pointer"}}>Confirm cancellation</button>
-            </div>}
-          </div>
-        </div>}
-      </div>
+        ))}
+      </div>}
     </div>
-  );
+  </div>);
 }
 
-function App() {
-  const [page, setPage] = useState("landing");
-  const [user, setUser] = useState(null);
-  const login = d => { setUser(d); setPage("dashboard"); };
-  const logout = () => { setUser(null); setPage("landing"); };
-
-  if (page==="landing") return <LandingPage onNav={setPage}/>;
-  if (page==="login"||page==="signup") return <AuthPage mode={page} onLogin={login} onNav={setPage}/>;
-  if (page==="dashboard"&&user) return <Dashboard user={user} onNav={setPage} onLogout={logout}/>;
-  if (page==="account"&&user) return <AccountPage user={user} onNav={setPage}/>;
-  return <LandingPage onNav={setPage}/>;
-}
-
-ReactDOM.render(<App/>, document.getElementById("root"));
+function App(){const[page,setPage]=useState("landing");return page==="search"?<SearchPage onNav={setPage}/>:<Landing onNav={setPage}/>;}
+ReactDOM.render(<App/>,document.getElementById("root"));
 </script>
 </body>
 </html>
